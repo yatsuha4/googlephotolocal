@@ -1,0 +1,2 @@
+# googlephotolocal
+Googleフォトの内容をローカルにダウンロードする
