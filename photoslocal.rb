@@ -53,8 +53,80 @@ class Downloader
 end
 
 #
-auth = Auth.new([ 'https://www.googleapis.com/auth/photoslibrary.readonly' ])
-if credentials = auth.auth
-  photos = Photos.new(credentials)
-  Downloader.new('photos').download(photos)
-end
+class PhotosLocal
+  #
+  UNALBUMED = 'unalbumed'
+
+  #
+  def initialize
+    @auth = Auth.new([ 'https://www.googleapis.com/auth/photoslibrary' ])
+    if credentials = @auth.auth
+      @photos = Photos.new(credentials)
+      #Downloader.new('photos').download(photos)
+      #puts(photos.albums)
+      #puts(photos.create_album('unalbumed'))
+    end
+  end
+
+  #
+  def getAllAlbums
+    unless @albums
+      @albums = @photos.getAllAlbums
+      @unalbumed = nil
+      @albums.each { |album|
+        if album.writeable? and album.title == UNALBUMED
+          @unalbumed = album
+        end
+        album.items = @photos.searchAll(album.id)
+        puts(album.to_s)
+      }
+      unless @unalbumed
+        puts("album: create #{UNALBUMED}")
+        @unalbumed = @photos.createAlbum(UNALBUMED)
+      end
+    end
+    return @albums
+  end
+
+  #
+  def getAllItems
+    unless @allItems
+      @allItems = @photos.getAllItems { |items| puts("items: #{items.size}") }
+    end
+    return @allItems
+  end
+
+  #
+  def updateUnalbumed
+    unalbumedIds = getUnalbumedIds
+    currentIds = @unalbumed.items.collect { |item| item['id'] }
+    ids = unalbumedIds - currentIds
+    while !ids.empty?
+      puts("unalbumed: +#{ids.size}")
+      @photos.addItems(@unalbumed.id, ids.slice!(0, 50))
+    end
+    ids = currentIds - unalbumedIds
+    while !ids.empty?
+      puts("unalbumed: -#{ids.size}")
+      @photos.removeItems(@unalbumed.id, ids.slice!(0, 50))
+    end
+  end
+
+  #
+  def getUnalbumedIds
+    unalbumedIds = getAllItems.collect { |item| item['id'] }
+    getAllAlbums.each { |album|
+      if album != @unalbumed
+        album.items.each { |item|
+          unalbumedIds.delete(item['id'])
+        }
+      end
+    }
+    puts("unalbumeds: #{unalbumedIds.size}")
+    return unalbumedIds
+  end
+ end
+
+#Google::Apis.logger.level = Logger::DEBUG
+photosLocal = PhotosLocal.new
+photosLocal.updateUnalbumed
