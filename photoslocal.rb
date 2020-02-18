@@ -56,9 +56,16 @@ end
 class PhotosLocal
   #
   UNALBUMED = 'unalbumed'
+  CACHE = '.cache.json'
 
   #
-  def initialize
+  def initialize(dir)
+    @dir = dir
+    @cache = Hash.new
+    @cache_file = File.expand_path(CACHE, @dir)
+    if File.file?(@cache_file)
+      @cache = JSON.parse(File.read(@cache_file))
+    end
     @auth = Auth.new([ 'https://www.googleapis.com/auth/photoslibrary' ])
     if credentials = @auth.auth
       @photos = Photos.new(credentials)
@@ -125,8 +132,63 @@ class PhotosLocal
     puts("unalbumeds: #{unalbumedIds.size}")
     return unalbumedIds
   end
- end
+
+  #
+  def downloadAllItems
+    if result = @photos.getItems(pageSize: 10)
+      result['mediaItems']&.each { |item|
+        print(item['filename'])
+        id = item['id']
+        if file = @cache[id] and File.exist?(file)
+          puts(' skip')
+        else
+          file = File.expand_path(item['filename'].gsub(/(\.\w+)$/, ".#{@cache.size}\\1"), @dir)
+          if downloadItem(item, file)
+            @cache[id] = file
+            File.open(@cache_file, 'w') { |fd| fd.write(JSON.pretty_generate(@cache)) }
+            puts(' ok')
+          else
+            puts(' error')
+          end
+        end
+      }
+    end
+  end
+
+  #
+  def downloadItem(item, file)
+    baseUrl = item['baseUrl']
+    if meta = item['mediaMetadata']
+      options = ['d']
+      # #options = Array.new
+      # if width = meta['width']
+      #   options.push("w#{width}")
+      # end
+      # if height = meta['height']
+      #   options.push("h#{height}")
+      # end
+      # if meta['video']
+      #   options.push('dv')
+      # end
+      unless options.empty?
+        baseUrl << "=" << options.join('-')
+      end
+    end
+    begin
+      OpenURI.open_uri(baseUrl) { |input|
+        File.open(file, 'wb') { |output|
+          output.write(input.read)
+          return true
+        }
+      }
+    rescue Net::ReadTimeout
+      retry
+    end
+    return false
+  end
+end
 
 #Google::Apis.logger.level = Logger::DEBUG
-photosLocal = PhotosLocal.new
-photosLocal.updateUnalbumed
+photosLocal = PhotosLocal.new('private/photo')
+photosLocal.downloadAllItems
+#photosLocal.updateUnalbumed
